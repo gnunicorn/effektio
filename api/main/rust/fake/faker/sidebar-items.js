@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["address",""],["administrative",""],["automotive",""],["barecode",""],["boolean",""],["company",""],["creditcard",""],["currency",""],["filesystem",""],["finance",""],["internet",""],["job",""],["lorem",""],["name",""],["number",""],["phone_number",""]]});
