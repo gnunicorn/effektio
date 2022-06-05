@@ -154,8 +154,11 @@ object Group {
     /// the members currently in the group
     fn active_members() -> Future<Result<Vec<Member>>>;
 
-    // the members currently in the room
+    /// the members currently in the room
     fn get_member(user: UserId) -> Future<Result<Member>>;
+
+    /// a stream of incoming member events
+    fn listen_to_member_events() -> Result<Stream<string>>;
 }
 
 object Member {

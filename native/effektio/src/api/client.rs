@@ -129,13 +129,6 @@ impl Client {
                 })
                 .await;
             client
-                .register_event_handler(|ev: StrippedRoomMemberEvent, c: MatrixClient, room: MatrixRoom| async move {
-                    if ev.state_key != c.user_id().await.unwrap() {
-                        return;
-                    }
-                })
-                .await;
-            client
                 .register_event_handler(|ev: OriginalSyncRoomMessageEvent, room: MatrixRoom| async move {
                     if let MatrixRoom::Joined(room) = room {
                         let msg_body = match ev.content.msgtype {
