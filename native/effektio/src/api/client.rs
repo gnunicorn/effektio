@@ -6,8 +6,8 @@ use effektio_core::{
     RestoreToken,
 };
 use futures::{
+    channel::mpsc::{channel, Receiver, Sender},
     stream, Stream, StreamExt,
-    channel::mpsc::{channel, Sender, Receiver},
 };
 use matrix_sdk::{
     config::SyncSettings,
@@ -15,9 +15,7 @@ use matrix_sdk::{
     room::Room as MatrixRoom,
     ruma::{
         events::{
-            room::message::{
-                MessageType, OriginalSyncRoomMessageEvent, TextMessageEventContent,
-            },
+            room::message::{MessageType, OriginalSyncRoomMessageEvent, TextMessageEventContent},
             AnyStrippedStateEvent,
         },
         OwnedUserId, RoomId,
@@ -147,7 +145,7 @@ impl Client {
 
         RUNTIME.spawn(async move {
             let state = state.clone();
-            let user_id = client.user_id().await.expect("No User ID found");
+            let user_id = client.user_id().expect("No User ID found");
 
             // past events
             client
@@ -163,18 +161,24 @@ impl Client {
                             for (room_id, room) in response.rooms.invite {
                                 println!("start_sync");
                                 for event in room.invite_state.events {
-                                    if let Ok(AnyStrippedStateEvent::RoomMember(member)) = event.deserialize() {
+                                    if let Ok(AnyStrippedStateEvent::RoomMember(member)) =
+                                        event.deserialize()
+                                    {
                                         if member.state_key == user_id.as_str() {
                                             println!("event: {:?}", event);
                                             println!("member: {:?}", member);
-                                            let v: Value = serde_json::from_str(event.json().get()).unwrap();
+                                            let v: Value =
+                                                serde_json::from_str(event.json().get()).unwrap();
                                             println!("event id: {}", v["event_id"]);
                                             println!("timestamp: {}", v["origin_server_ts"]);
                                             println!("room id: {:?}", room_id);
                                             println!("sender: {:?}", member.sender);
                                             println!("state key: {:?}", member.state_key);
                                             state.write().invitations.push(Invitation {
-                                                event_id: v["event_id"].as_str().unwrap().to_owned(),
+                                                event_id: v["event_id"]
+                                                    .as_str()
+                                                    .unwrap()
+                                                    .to_owned(),
                                                 timestamp: v["origin_server_ts"].as_u64().unwrap(),
                                                 room_id: room_id.to_string(),
                                                 sender: member.sender.to_string(),
@@ -197,14 +201,16 @@ impl Client {
                 .await;
             // current events
             client
-                .register_event_handler(|ev: OriginalSyncRoomMessageEvent, room: MatrixRoom| async move {
-                    if let MatrixRoom::Joined(room) = room {
-                        let msg_body = match ev.content.msgtype {
-                            MessageType::Text(TextMessageEventContent { body, .. }) => body,
-                            _ => return,
-                        };
-                    }
-                })
+                .register_event_handler(
+                    |ev: OriginalSyncRoomMessageEvent, room: MatrixRoom| async move {
+                        if let MatrixRoom::Joined(room) = room {
+                            let msg_body = match ev.content.msgtype {
+                                MessageType::Text(TextMessageEventContent { body, .. }) => body,
+                                _ => return,
+                            };
+                        }
+                    },
+                )
                 .await;
         });
     }
@@ -226,7 +232,7 @@ impl Client {
     }
 
     pub async fn restore_token(&self) -> Result<String> {
-        let session = self.client.session().await.context("Missing session")?;
+        let session = self.client.session().context("Missing session")?.clone();
         let homeurl = self.client.homeserver().await;
         Ok(serde_json::to_string(&RestoreToken {
             session,
@@ -275,8 +281,8 @@ impl Client {
         let l = self.client.clone();
         RUNTIME
             .spawn(async move {
-                let user_id = l.user_id().await.context("No User ID found")?;
-                Ok(user_id)
+                let user_id = l.user_id().context("No User ID found")?;
+                Ok(user_id.to_owned())
             })
             .await?
     }
@@ -298,8 +304,11 @@ impl Client {
     }
 
     pub async fn account(&self) -> Result<Account> {
-        let user_id = self.client.user_id().await.unwrap();
-        Ok(Account::new(self.client.account(), user_id.as_str().to_owned()))
+        let user_id = self.client.user_id().unwrap();
+        Ok(Account::new(
+            self.client.account(),
+            user_id.as_str().to_owned(),
+        ))
     }
 
     pub async fn display_name(&self) -> Result<String> {
@@ -320,7 +329,7 @@ impl Client {
         let l = self.client.clone();
         RUNTIME
             .spawn(async move {
-                let device_id = l.device_id().await.context("No Device ID found")?;
+                let device_id = l.device_id().context("No Device ID found")?;
                 Ok(device_id.as_str().to_string())
             })
             .await?

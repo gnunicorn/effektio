@@ -1,8 +1,8 @@
 use anyhow::{bail, Context, Result};
 use effektio_core::RestoreToken;
 use futures::{
+    channel::mpsc::{channel, Receiver, Sender},
     pin_mut, stream, Stream, StreamExt,
-    channel::mpsc::{channel, Sender, Receiver},
 };
 use matrix_sdk::ruma;
 use matrix_sdk::{
@@ -14,13 +14,12 @@ use matrix_sdk::{
             room::{
                 member::{RoomMemberEvent, StrippedRoomMemberEvent},
                 message::{
-                    MessageType, OriginalSyncRoomMessageEvent,
-                    RoomMessageEventContent, TextMessageEventContent,
+                    MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
+                    TextMessageEventContent,
                 },
             },
-            AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent,
-            AnySyncMessageLikeEvent, AnySyncRoomEvent, MessageLikeEvent,
-            StateEventType, SyncMessageLikeEvent,
+            AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyRoomEvent, AnySyncMessageLikeEvent,
+            AnySyncRoomEvent, MessageLikeEvent, StateEventType, SyncMessageLikeEvent,
         },
         EventId, OwnedUserId, UInt, UserId,
     },
@@ -81,9 +80,8 @@ impl Room {
         let r = self.room.clone();
         RUNTIME
             .spawn(async move {
-                let binary = api::FfiBuffer::new(
-                    r.avatar(MediaFormat::File).await?.context("No avatar")?,
-                );
+                let binary =
+                    api::FfiBuffer::new(r.avatar(MediaFormat::File).await?.context("No avatar")?);
                 Ok(binary)
             })
             .await?
@@ -93,7 +91,8 @@ impl Room {
         let r = self.room.clone();
         RUNTIME
             .spawn(async move {
-                let members = r.active_members()
+                let members = r
+                    .active_members()
                     .await
                     .context("No members")?
                     .into_iter()
@@ -108,7 +107,8 @@ impl Room {
         let r = self.room.clone();
         RUNTIME
             .spawn(async move {
-                let members = r.active_members_no_sync()
+                let members = r
+                    .active_members_no_sync()
                     .await
                     .context("No members")?
                     .into_iter()
@@ -138,12 +138,8 @@ impl Room {
                     .timeline()
                     .await
                     .context("Failed acquiring timeline streams")?;
-                let stream = TimelineStream::new(
-                    Box::pin(forward),
-                    Box::pin(backward),
-                    client,
-                    room,
-                );
+                let stream =
+                    TimelineStream::new(Box::pin(forward), Box::pin(backward), client, room);
                 Ok(stream)
             })
             .await?
@@ -234,19 +230,21 @@ impl Room {
         let sender_arc = Arc::new(Mutex::new(tx));
         RUNTIME.block_on(async move {
             client
-                .register_event_handler(move |ev: StrippedRoomMemberEvent, c: MatrixClient, room: MatrixRoom| {
-                    let sender_arc = sender_arc.clone();
-                    let room_id = room_id.clone();
-                    async move {
-                        let s = sender_arc.lock();
-                        if room.room_id() == room_id {
-                            if let Err(e) = s.clone().try_send(ev.sender.to_string()) {
-                                log::warn!("Dropping member event for {}: {}", room_id, e);
+                .register_event_handler(
+                    move |ev: StrippedRoomMemberEvent, c: MatrixClient, room: MatrixRoom| {
+                        let sender_arc = sender_arc.clone();
+                        let room_id = room_id.clone();
+                        async move {
+                            let s = sender_arc.lock();
+                            if room.room_id() == room_id {
+                                if let Err(e) = s.clone().try_send(ev.sender.to_string()) {
+                                    log::warn!("Dropping member event for {}: {}", room_id, e);
+                                }
                             }
+                            // the lock is unlocked here when `s` goes out of scope.
                         }
-                        // the lock is unlocked here when `s` goes out of scope.
-                    }
-                })
+                    },
+                )
                 .await;
         });
         Ok(rx)
@@ -323,7 +321,12 @@ impl Room {
                     // retry autojoin due to synapse sending invites, before the
                     // invited user can join for more information see
                     // https://github.com/matrix-org/synapse/issues/4345
-                    eprintln!("Failed to accept room {} ({:?}), retrying in {}s", room.room_id(), err, delay);
+                    eprintln!(
+                        "Failed to accept room {} ({:?}), retrying in {}s",
+                        room.room_id(),
+                        err,
+                        delay
+                    );
 
                     sleep(Duration::from_secs(delay)).await;
                     delay *= 2;
@@ -353,7 +356,12 @@ impl Room {
                     // retry autojoin due to synapse sending invites, before the
                     // invited user can join for more information see
                     // https://github.com/matrix-org/synapse/issues/4345
-                    eprintln!("Failed to reject room {} ({:?}), retrying in {}s", room.room_id(), err, delay);
+                    eprintln!(
+                        "Failed to reject room {} ({:?}), retrying in {}s",
+                        room.room_id(),
+                        err,
+                        delay
+                    );
 
                     sleep(Duration::from_secs(delay)).await;
                     delay *= 2;
@@ -416,8 +424,15 @@ impl Room {
                     .unwrap();
                 let mut accounts: Vec<Account> = vec![];
                 for user_id in invited.iter() {
-                    let other_client = MatrixClient::builder().user_id(&user_id).build().await.unwrap();
-                    accounts.push(Account::new(other_client.account(), user_id.as_str().to_owned()));
+                    let other_client = MatrixClient::builder()
+                        .user_id(&user_id)
+                        .build()
+                        .await
+                        .unwrap();
+                    accounts.push(Account::new(
+                        other_client.account(),
+                        user_id.as_str().to_owned(),
+                    ));
                 }
                 Ok(accounts)
             })
@@ -641,7 +656,8 @@ impl std::ops::Deref for Room {
 fn event_content(ev: AnySyncRoomEvent) -> Option<String> {
     if let AnySyncRoomEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
         SyncMessageLikeEvent::Original(event),
-    )) = ev {
+    )) = ev
+    {
         Some(event.content.msgtype.body().to_owned())
     } else {
         None
@@ -653,9 +669,7 @@ mod tests {
     use anyhow::Result;
     use futures::{pin_mut, StreamExt};
     use matrix_sdk::{
-        config::SyncSettings,
-        ruma::events::AnyStrippedStateEvent,
-        Client as MatrixClient, LoopCtrl,
+        config::SyncSettings, ruma::events::AnyStrippedStateEvent, Client as MatrixClient, LoopCtrl,
     };
     use serde_json::Value;
     use std::time::Duration;
@@ -663,7 +677,7 @@ mod tests {
     use zenv::{zenv, Zenv};
 
     use crate::{
-        api::{room::Room, Client, ClientStateBuilder, login_new_client},
+        api::{login_new_client, room::Room, Client, ClientStateBuilder},
         platform,
     };
 
@@ -682,7 +696,9 @@ mod tests {
         }
 
         let client = client_builder.build().await.unwrap();
-        client.login(&username.clone(), &password, None, Some("command bot")).await?;
+        client
+            .login(&username.clone(), &password, None, Some("command bot"))
+            .await?;
         println!("logged in as {}", username);
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_secs(10));
@@ -693,11 +709,14 @@ mod tests {
                 async move {
                     for (room_id, room) in response.rooms.invite {
                         for event in room.invite_state.events {
-                            if let Ok(AnyStrippedStateEvent::RoomMember(member)) = event.deserialize() {
+                            if let Ok(AnyStrippedStateEvent::RoomMember(member)) =
+                                event.deserialize()
+                            {
                                 if member.state_key == username {
                                     println!("event: {:?}", event);
                                     println!("member: {:?}", member);
-                                    let v: Value = serde_json::from_str(event.json().get()).unwrap();
+                                    let v: Value =
+                                        serde_json::from_str(event.json().get()).unwrap();
                                     println!("event id: {}", v["event_id"]);
                                     println!("timestamp: {}", v["origin_server_ts"]);
                                     println!("room id: {:?}", room_id);
